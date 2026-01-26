@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linguaskill Academy</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="app">
+        <h1>Linguaskill Academy</h1>
+        
+        <div id="login-form" class="form-group">
+            <input type="email" id="email" placeholder="Correu electrònic">
+            <input type="password" id="password" placeholder="Contrasenya">
+            <button id="btn-login">Entrar</button>
+        </div>
+        <p id="message"></p>
+
+        <div id="user-profile" style="display: none;">
+            <p>Benvingut, <span id="user-email"></span></p>
+            
+            <div style="height: 200px; margin-bottom: 20px; background: #f8fafc; border-radius: 10px; padding: 10px;">
+                <canvas id="progressChart"></canvas>
+            </div>
+
+            <div class="menu-grid">
+                <button class="menu-card" id="btn-vocab">📚 Estudiar</button>
+                <button class="menu-card" id="btn-grammar">✍️ Gramàtica</button>
+            </div>
+
+            <button id="btn-logout" class="secondary" style="margin-top: 20px;">Tancar sessió</button>
+        </div>
+
+        <div id="exercise-container" style="display: none; margin-top: 20px;"></div>
+        
+        <button id="btn-back" style="display: none; margin-top: 20px; background: #64748b; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer;">
+            ⬅️ Tornar al Menú
+        </button>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>

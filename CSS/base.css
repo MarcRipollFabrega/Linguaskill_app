@@ -1,0 +1,28 @@
+:root {
+    --primary-color: #2563eb;
+    --primary-hover: #1d4ed8;
+    --secondary-color: #64748b;
+    --background-color: #f8fafc;
+    --card-background: #ffffff;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --error-color: #ef4444;
+    --success-color: #22c55e;
+    --border-radius: 12px;
+    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    --font-family: 'Segoe UI', sans-serif;
+    --success-color: #22c55e;
+    --error-color: #ef4444;
+    --primary-color: #2563eb;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: var(--font-family);
+    background-color: var(--background-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}

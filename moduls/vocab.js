@@ -3,6 +3,7 @@ let currentIndex = 0;
 let supabase = null;
 let firstSelection = null;
 let solvedCount = 0;
+let wordsWithErrors = new Set();
 
 export async function initVocabModule(supabaseClient, container, level = "A1") {
   supabase = supabaseClient;
@@ -10,6 +11,7 @@ export async function initVocabModule(supabaseClient, container, level = "A1") {
   // 1. Resetejar l'estat per a la nova sessió
   currentIndex = 0;
   currentWords = [];
+  wordsWithErrors.clear();
 
   container.innerHTML = `<div class="loader">Buscant paraules per practicar...</div>`;
 
@@ -181,12 +183,14 @@ function renderLevel1(container) {
 }
 
 // --- NIVELLS 2 A 5 ---
-function renderWritingLevel(container, level) {
+
+async function renderWritingLevel(container, level) {
   const word = currentWords[currentIndex];
   let promptText = "",
     targetWord = "",
     showText = "";
 
+  // 1. Configuració de textos segons el nivell
   if (level === 2) {
     promptText = "Tradueix al Castellà:";
     targetWord = word.paraula_es;
@@ -205,6 +209,7 @@ function renderWritingLevel(container, level) {
     showText = "???";
   }
 
+  // Locució automàtica si el nivell ho requereix o és anglès
   if (window.speak) window.speak(word.paraula_en);
 
   container.innerHTML = `
@@ -212,13 +217,17 @@ function renderWritingLevel(container, level) {
         <div class="word-header"><span class="level-tag">NIVELL ${level}</span></div>
         <p style="margin-top:20px; color: var(--text-muted);">${promptText}</p>
         <h2 style="font-size: 2.5rem; margin: 20px 0;">${showText}</h2>
-        <input type="text" id="ans-input" autocomplete="off" placeholder="Escriu aquí..." style="text-align: center; font-size: 1.2rem; padding: 12px; width: 85%; border-radius: 10px; border: 2px solid #e2e8f0; margin-bottom: 15px;">
+        <input type="text" id="ans-input" autocomplete="off" placeholder="Escriu aquí..." 
+               style="text-align: center; font-size: 1.2rem; padding: 12px; width: 85%; border-radius: 10px; border: 2px solid #e2e8f0; margin-bottom: 15px;">
         <button id="btn-check" class="primary" style="width: 85%;">Comprovar</button>
         <div style="margin-top: 15px;"><button id="btn-replay" class="btn-hint">🔊 Escoltar de nou</button></div>
         <p id="feed" style="margin-top:15px; font-weight:bold; min-height: 1.5em;"></p>
     </div>`;
 
   const input = document.getElementById("ans-input");
+  const feedbackElem = document.getElementById("feed");
+  
+  // Focus automàtic per a millor UX
   setTimeout(() => input.focus(), 100);
 
   document.getElementById("btn-replay").onclick = () => {
@@ -226,31 +235,61 @@ function renderWritingLevel(container, level) {
     input.focus();
   };
 
-  const check = () => {
+  const check = async () => {
     const normalize = (s) =>
-      s
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim();
-    if (normalize(input.value) === normalize(targetWord)) {
-      document.getElementById("feed").innerHTML =
-        "<span style='color: var(--success-color)'>✅ Correcte!</span>";
+      s.normalize("NFD")
+       .replace(/[\u0300-\u036f]/g, "")
+       .toLowerCase()
+       .trim();
+
+    const userInput = normalize(input.value);
+    const correctTarget = normalize(targetWord);
+
+    if (userInput === correctTarget) {
+      // --- CAS CORRECTE ---
+      feedbackElem.innerHTML = "<span style='color: #22c55e'>✅ Correcte!</span>";
+      
       setTimeout(() => {
         currentIndex++;
+        if (currentIndex < currentWords.length) {
+          renderWritingLevel(container, level);
+        } else {
+          // Final de bloc: Actualitzem progrés només de les encertades
+          updateUserProgress(level);
+          renderTransition(container, level + 1);
+        }
+      }, 1000);
+
+    } else {
+      // --- CAS ERROR ---
+      input.classList.add("shake");
+      feedbackElem.innerHTML = `
+        <span style="color: #ef4444;">❌ Incorrecte. La resposta era: <strong>${targetWord}</strong></span>
+      `;
+
+      // 1. Marquem la paraula com a fallada en aquesta sessió
+      if (typeof wordsWithErrors !== 'undefined') {
+        wordsWithErrors.add(word.id);
+      }
+
+      // 2. Registrem l'error a la base de dades immediatament
+      await registrarErrorEnBD(word.id);
+
+      setTimeout(() => {
+        input.classList.remove("shake");
+        currentIndex++; 
+        
         if (currentIndex < currentWords.length) {
           renderWritingLevel(container, level);
         } else {
           updateUserProgress(level);
           renderTransition(container, level + 1);
         }
-      }, 1000);
-    } else {
-      input.classList.add("shake");
-      setTimeout(() => input.classList.remove("shake"), 500);
+      }, 2500); // Temps extra perquè l'usuari llegeixi la correcció
     }
   };
 
+  // Events de control
   document.getElementById("btn-check").onclick = check;
   input.onkeypress = (e) => {
     if (e.key === "Enter") check();
@@ -300,33 +339,67 @@ async function updateUserProgress(faseAssolida) {
   } = await supabase.auth.getSession();
   if (!session) return;
 
-  const updates = currentWords.map((word) => {
-    // Obtenim la fase real que té la paraula a la DB actualment
+  // NOMÉS actualitzem les paraules que NO han fallat en aquesta ronda
+  const wordsToUpdate = currentWords.filter(
+    (word) => !wordsWithErrors.has(word.id),
+  );
+
+  if (wordsToUpdate.length === 0) return;
+
+  const updates = wordsToUpdate.map((word) => {
     const pData = word.ls_progres_usuari;
-    const faseActualDB =
-      pData && pData.length > 0 ? parseInt(pData[0].fase_vocabulari) : 0;
+    const registro = Array.isArray(pData) ? pData[0] : pData;
+    const faseActualDB = registro ? parseInt(registro.fase_vocabulari) : 0;
 
-    // NOMÉS pugem la fase si el nivell actualment superat és major al que ja teníem
     const novaFase = Math.max(faseActualDB, faseAssolida);
-
-    // Si la paraula arriba al nivell 5, la "programem" per a d'aquí a 7 dies
     const dies = novaFase >= 5 ? 7 : 1;
-    const proximRepas = new Date(
-      Date.now() + dies * 24 * 60 * 60 * 1000,
-    ).toISOString();
 
     return {
       user_id: session.user.id,
       unitat_id: word.id,
       fase_vocabulari: novaFase,
       ultim_repas: new Date().toISOString(),
-      proxim_repas: proximRepas,
+      proxim_repas: new Date(
+        Date.now() + dies * 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      // MANTENIR ELS ERRORS: No enviis comptador_errors aquí per no sobreescriure'ls a 0
     };
   });
 
-  const { error } = await supabase
+  await supabase
     .from("ls_progres_usuari")
     .upsert(updates, { onConflict: "user_id, unitat_id" });
 
-  if (error) console.error("Error guardant progrés:", error);
+
+}
+async function registrarErrorEnBD(wordId) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return;
+
+  // 1. Obtenim el valor actual dels errors per a aquesta paraula
+  const { data: currentProg } = await supabase
+    .from("ls_progres_usuari")
+    .select("comptador_errors")
+    .eq("user_id", session.user.id)
+    .eq("unitat_id", wordId)
+    .single();
+
+  const nousErrors = (currentProg?.comptador_errors || 0) + 1;
+
+  // 2. Pugem la actualització amb el nou comptador
+  const { error } = await supabase.from("ls_progres_usuari").upsert(
+    {
+      user_id: session.user.id,
+      unitat_id: wordId,
+      fase_vocabulari: 1, // Baixem a nivell 1 per reforçar
+      comptador_errors: nousErrors, // Ara sí que s'actualitza
+      ultima_revisio: new Date().toISOString(),
+      proxim_repas: new Date().toISOString(),
+    },
+    { onConflict: "user_id,unitat_id" },
+  );
+
+  if (error) console.error("Error al registrar fallada:", error.message);
 }

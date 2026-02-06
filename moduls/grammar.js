@@ -1,270 +1,274 @@
 let currentGrammarWords = [];
-let theoryData = null; // Nova variable per emmagatzemar la teoria del pilar
 let currentIndex = 0;
 let supabase = null;
+
+function normalizeText(text) {
+  if (!text) return "";
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
 
 export async function initGrammarModule(
   supabaseClient,
   container,
   level = "A1",
-  blocId = "1", // Suposem que passes el bloc com a paràmetre
+  blocId = "1",
 ) {
   supabase = supabaseClient;
   currentIndex = 0;
 
-  container.innerHTML = `<div class="loader">Preparant la lliçó de gramàtica...</div>`;
+  container.innerHTML = `<div class="loader">Preparant exercicis...</div>`;
 
   try {
-    console.log("Cercant teoria per al bloc:", blocId);
-
-    // 1. Obtenim la teoria (eliminem .single() per evitar l'error 406)
-    const { data: teories, error: theoryError } = await supabase
-      .from("ls_teoria")
-      .select("*")
-      .ilike("blocs_relacionats", `%${blocId}%`);
-
-    // Si no hi ha error i tenim resultats, agafem el primer manualment
-    if (!theoryError && teories && teories.length > 0) {
-      theoryData = teories[0];
-      console.log("Teoria carregada correctament:", theoryData.concepte_clau);
-    } else {
-      console.warn("No s'ha trobat teoria específica per al bloc:", blocId);
-      theoryData = null; // Ens assegurem que no quedi brossa d'altres blocs
-    }
-
-    // 2. Obtenim les paraules/frases del bloc
     const {
       data: { session },
     } = await supabase.auth.getSession();
+    if (!session) throw new Error("No hi ha sessió");
 
-    // Comprovem si hi ha sessió abans de continuar
-    if (!session) {
-      container.innerHTML = `<p>Sessió no trobada. Torna a iniciar sessió.</p>`;
-      return;
-    }
-
-    const { data: paraules, error } = await supabase
+    // Carreguem frases del bloc amb el seu progrés
+    const { data: unitats, error: unitatsError } = await supabase
       .from("ls_contingut")
-      .select(`*, ls_progres_usuari!inner(*)`)
+      .select(`*, ls_progres_usuari(*)`)
       .eq("nivell", level)
       .eq("bloc_tema", blocId)
-      .eq("ls_progres_usuari.user_id", session.user.id)
-      .gte("ls_progres_usuari.fase_vocabulari", 5)
-      .order("ordre_dins_bloc", { ascending: true });
+      .not("explicacio_gramatical", "is", null);
 
-    if (error || !paraules || paraules.length === 0) {
-      // Si el vocabulari no està a fase 5, donem feedback
-      container.innerHTML = `
-        <div class="vocab-card" style="text-align: center; padding: 2rem;">
-          <h3>Bloc bloquejat 🔒</h3>
-          <p>Has de completar el vocabulari d'aquest bloc fins a la Fase 5 per poder accedir a la pràctica de gramàtica.</p>
-        </div>`;
-      return;
-    }
+    if (unitatsError) throw unitatsError;
 
-    currentGrammarWords = paraules;
-    renderGrammarTheory(container);
+    // Ordenem per prioritat (Errors > Nivells baixos)
+    currentGrammarWords = unitats.sort((a, b) => {
+      const progA = a.ls_progres_usuari?.[0] || {
+        fase_gramatica: 0,
+        comptador_errors: 0,
+      };
+      const progB = b.ls_progres_usuari?.[0] || {
+        fase_gramatica: 0,
+        comptador_errors: 0,
+      };
+      if ((progB.comptador_errors || 0) !== (progA.comptador_errors || 0))
+        return (progB.comptador_errors || 0) - (progA.comptador_errors || 0);
+      return progA.fase_gramatica - progB.fase_gramatica;
+    });
+
+    showNextGrammarTask(container);
   } catch (err) {
-    console.error("Error crític en el mòdul de gramàtica:", err);
-    container.innerHTML = `<p>S'ha produït un error en carregar el mòdul.</p>`;
+    container.innerHTML = `<div class="vocab-card">Error: ${err.message}</div>`;
   }
 }
 
-// --- FASE 1: EXPLICACIÓ CLARA I DIRECTA (De ls_teoria) ---
-function renderGrammarTheory(container) {
-  const titol = theoryData ? theoryData.concepte_clau : "Repàs Gramatical";
-  const explicacio = theoryData
-    ? theoryData.explicacio_detallada
-    : "Ordena les frases per practicar la teva sintaxi.";
-  const exemple = theoryData ? theoryData.exemple_clau : "";
-
-  container.innerHTML = `
-    <div class="vocab-card grammar-theory" style="padding: 30px; border-top: 6px solid #6366f1;">
-        <div class="word-header">
-            <span class="level-tag">${theoryData ? theoryData.pilar_tematic : "GRAMÀTICA"}</span>
-        </div>
-        <h2 style="margin-top: 15px; color: #1e293b;">${titol}</h2>
-        <p style="font-size: 1.1rem; line-height: 1.6; color: #334155;">${explicacio}</p>
-        ${
-          exemple
-            ? `<div style="margin-top: 20px; padding: 15px; background: #eef2ff; border-radius: 8px;">
-            <small style="color: #6366f1; font-weight: bold;">EXEMPLE CLAU:</small>
-            <p style="font-style: italic;">"${exemple}"</p>
-        </div>`
-            : ""
-        }
-        <button id="btn-start-practice" class="primary" style="width: 100%; margin-top: 25px;">
-            Entès, anem a practicar! ✍️
-        </button>
-    </div>`;
-
-  document.getElementById("btn-start-practice").onclick = () => {
-    console.log("Botó clicat, executant renderUnscrambleTask...");
-    renderUnscrambleTask(container);
-  };
-}
-function renderUnscrambleTask(container) {
+function showNextGrammarTask(container) {
   if (currentIndex >= currentGrammarWords.length) {
     renderGrammarFinal(container);
     return;
   }
 
-  const wordData = currentGrammarWords[currentIndex];
-  const sentence = wordData.frase_en;
-  const targetWordCount = sentence.split(" ").length;
+  const word = currentGrammarWords[currentIndex];
+  // ABANS d'anar al nivell, mostrem l'explicació de LA frase actual
+  renderWordExplanation(container, word);
+}
 
-  // Desordenem les paraules
-  const scrambled = sentence.split(" ").sort(() => Math.random() - 0.5);
-  let userSelection = [];
-
+// NOVA PANTALLA: Explicació individual per cada frase
+function renderWordExplanation(container, word) {
   container.innerHTML = `
-    <div class="vocab-card" style="padding: 25px;">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <small style="color: #6366f1; font-weight: bold;">EXERCICI ${currentIndex + 1}/${currentGrammarWords.length}</small>
-        <button id="btn-audio-hint" style="background:none; border:none; cursor:pointer; font-size:1.2rem;">🔊</button>
-      </div>
-      
-      <h3 style="margin: 15px 0 5px 0;">Ordena la frase:</h3>
-      <p style="color: #64748b; margin-bottom: 25px; font-style: italic;">"${wordData.frase_es}"</p>
-      
-      <div id="selection-area" style="min-height: 60px; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 10px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 8px; background: #f8fafc;"></div>
-      
-      <div id="words-pool" style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; justify-content: center;">
-        ${scrambled.map((w, i) => `<button class="word-chip" data-index="${i}" style="padding: 10px 16px; background: white; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: 500;">${w}</button>`).join("")}
-      </div>
+    <div class="vocab-card" style="animation: fadeIn 0.4s ease;">
+        <span class="level-tag" style="background:var(--secondary);">RECORDATORI GRAMATICAL</span>
+        <h2 style="margin:20px 0; color:var(--primary);">Com funciona aquesta estructura?</h2>
+        
+        <div style="background:#f0f7ff; padding:20px; border-radius:12px; border-left:5px solid var(--primary); margin-bottom:20px;">
+            <p style="font-size:1.1rem; line-height:1.5; color:#1e293b;">
+                ${word.explicacio_gramatical}
+            </p>
+        </div>
 
-      <div id="grammar-feed" style="margin-bottom: 15px; min-height: 24px; text-align: center; font-weight: bold;"></div>
-      
-      <div style="display: flex; gap: 10px;">
-        <button id="btn-reset-grammar" class="secondary" style="flex: 1;">Reiniciar 🔄</button>
-        <button id="btn-check-grammar" class="primary" style="flex: 2; opacity: 0.5; cursor: not-allowed;" disabled>Comprovar ✅</button>
-      </div>
+        <div style="padding:15px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:25px;">
+            <small style="color:#64748b; display:block; margin-bottom:5px;">IDEA A PRACTICAR:</small>
+            <strong style="font-size:1.2rem;">${word.frase_es}</strong>
+        </div>
+
+        <button id="btn-go-to-exercise" class="primary" style="width:100%; padding:15px; font-weight:bold;">
+            ENTÈS, PRACTICAR ARA
+        </button>
     </div>
   `;
 
-  const checkBtn = document.getElementById("btn-check-grammar");
-
-  // Funció d'àudio
-  const playAudio = (text) => {
-    const synth = window.speechSynthesis;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    synth.speak(utterance);
-  };
-
-  document.getElementById("btn-audio-hint").onclick = () => playAudio(sentence);
-
-  // Lògica de selecció de paraules
-  document.querySelectorAll(".word-chip").forEach((btn) => {
-    btn.onclick = () => {
-      userSelection.push(btn.innerText);
-
-      const chip = document.createElement("span");
-      chip.innerText = btn.innerText;
-      chip.style =
-        "padding: 6px 12px; background: #6366f1; color: white; border-radius: 6px; cursor: pointer;";
-
-      // Si cliquen la paraula a l'àrea de selecció, la tornem a baix
-      chip.onclick = () => {
-        userSelection = userSelection.filter((w) => w !== chip.innerText);
-        chip.remove();
-        btn.style.display = "block";
-        checkBtn.disabled = true;
-        checkBtn.style.opacity = "0.5";
-        checkBtn.style.cursor = "not-allowed";
-      };
-
-      document.getElementById("selection-area").appendChild(chip);
-      btn.style.display = "none";
-
-      // ACTIVACIÓ DEL BOTÓ: Només si la frase està completa
-      if (userSelection.length === targetWordCount) {
-        checkBtn.disabled = false;
-        checkBtn.style.opacity = "1";
-        checkBtn.style.cursor = "pointer";
-        checkBtn.style.background = "#4f46e5"; // Color més intens
-      }
-    };
-  });
-
-  document.getElementById("btn-reset-grammar").onclick = () =>
-    renderUnscrambleTask(container);
-
-  // Lògica de comprovació
-  checkBtn.onclick = async () => {
-    const finalSentence = userSelection.join(" ").trim();
-    const feedback = document.getElementById("grammar-feed");
-    const selectionArea = document.getElementById("selection-area");
-
-    if (finalSentence === sentence.trim()) {
-      // CAS CORRECTE
-      feedback.innerHTML =
-        "<span style='color: #22c55e'>🎉 Correct! Well done.</span>";
-      feedback.style.animation = "bounce 0.5s ease";
-      playAudio(sentence);
-
-      await updateGrammarProgress(wordData.id);
-
-      setTimeout(() => {
-        currentIndex++;
-        renderUnscrambleTask(container);
-      }, 2000);
-    } else {
-      // CAS ERROR: Mostrem l'explicació específica del registre
-      selectionArea.style.borderColor = "#ef4444";
-      selectionArea.style.backgroundColor = "#fef2f2";
-
-      feedback.innerHTML = `
-        <div style="background: #fff1f2; border-left: 4px solid #ef4444; padding: 12px; margin-top: 10px; text-align: left;">
-          <p style="color: #991b1b; margin-bottom: 5px;">❌ <strong>Keep trying!</strong></p>
-          <p style="color: #475569; font-size: 0.9rem; font-weight: normal; line-height: 1.4;">
-            ${wordData.explicacio_gramatical || "Revisa l'ordre de la frase segons la teoria del bloc."}
-          </p>
-        </div>
-      `;
-
-      // Opcional: Podem fer que les paraules tornin a la pool automàticament després de 3 segons
-      // o deixar que l'usuari cliqui "Reiniciar" o tregui paraules manualment.
-    }
+  document.getElementById("btn-go-to-exercise").onclick = () => {
+    // Un cop llegida l'explicació, carreguem el nivell que toqui
+    const progress = word.ls_progres_usuari?.[0] || { fase_gramatica: 0 };
+    if (progress.fase_gramatica === 0) renderLevel1(container, word);
+    else if (progress.fase_gramatica === 1) renderLevel2(container, word);
+    else renderLevel3(container, word);
   };
 }
-async function updateGrammarProgress(wordId) {
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session) return;
 
-    console.log("Actualitzant progrés per a la unitat:", wordId);
+// NIVELL 1: ORDENAR (EN)
+function renderLevel1(container, word) {
+  const wordsArray = word.frase_en.split(" ").sort(() => Math.random() - 0.5);
+  let selection = [];
 
-    // Fem servir 'unitat_id' perquè és el nom real de la teva columna
-    const { error } = await supabase
-      .from("ls_progres_usuari")
-      .update({
-        fase_gramatica: 1,
-        ultima_revisio: new Date().toISOString(),
-      })
-      .eq("user_id", session.user.id)
-      .eq("unitat_id", wordId);
+  container.innerHTML = `
+    <div class="vocab-card">
+        <p id="feed-grammar" style="min-height:1.2em; text-align:center; font-weight:bold;"></p>
+        <span class="level-tag">NIVELL 1: ORDENAR</span>
+        <h4 style="margin:15px 0;">${word.frase_es}</h4>
+        <div id="drop-zone" style="min-height:60px; border:2px dashed #cbd5e1; padding:10px; margin-bottom:15px; border-radius:10px; display:flex; flex-wrap:wrap; gap:5px;"></div>
+        <div id="word-pool" style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center;"></div>
+        <button id="btn-check" class="primary" style="width:100%; margin-top:20px;">Comprovar (Intro)</button>
+    </div>`;
 
-    if (error) {
-      console.error("Error en el PATCH de Supabase:", error.message);
+  const dropZone = document.getElementById("drop-zone");
+  const wordPool = document.getElementById("word-pool");
+  const feed = document.getElementById("feed-grammar");
+
+  wordsArray.forEach((w) => {
+    const btn = document.createElement("button");
+    btn.innerText = w;
+    btn.className = "btn-hint";
+    btn.onclick = () => {
+      selection.push(w);
+      const span = document.createElement("span");
+      span.innerText = w;
+      span.className = "word-pill-active";
+      span.onclick = () => {
+        selection = selection.filter((i) => i !== w);
+        span.remove();
+        btn.style.display = "inline-block";
+      };
+      dropZone.appendChild(span);
+      btn.style.display = "none";
+    };
+    wordPool.appendChild(btn);
+  });
+
+  const check = async () => {
+    if (normalizeText(selection.join("")) === normalizeText(word.frase_en)) {
+      feed.innerHTML = "✅ Correcte!";
+      if (window.speak) window.speak(word.frase_en);
+      await updateGrammarStep(word.id, 1, false);
+      setTimeout(() => {
+        currentIndex++;
+        showNextGrammarTask(container);
+      }, 1200);
     } else {
-      console.log("✅ Progrés guardat correctament a 'ls_progres_usuari'");
+      feed.innerHTML = "❌ Revisa l'explicació i l'ordre";
+      await updateGrammarStep(word.id, 0, true);
     }
-  } catch (err) {
-    console.error("Error crític a updateGrammarProgress:", err);
-  }
+  };
+
+  document.getElementById("btn-check").onclick = check;
+  // Gestió d'Intro
+  const onKey = (e) => {
+    if (e.key === "Enter") {
+      check();
+      window.removeEventListener("keydown", onKey);
+    }
+  };
+  window.addEventListener("keydown", onKey);
+}
+
+// NIVELLS 2 I 3 (TRADUCCIÓ)
+function renderLevel2(container, word) {
+  renderWritingUI(
+    container,
+    "NIVELL 2: TRADUEIX A CASTELLÀ",
+    word.frase_en,
+    word.frase_es,
+    "Escriu en castellà...",
+    2,
+  );
+}
+
+function renderLevel3(container, word) {
+  renderWritingUI(
+    container,
+    "NIVELL 3: TRADUEIX A ANGLÈS",
+    word.frase_es,
+    word.frase_en,
+    "Escriu en anglès...",
+    3,
+  );
+}
+
+function renderWritingUI(
+  container,
+  label,
+  promptTxt,
+  targetTxt,
+  placeholder,
+  nextFase,
+) {
+  container.innerHTML = `
+    <div class="vocab-card">
+        <p id="feed-grammar" style="min-height:1.2em; text-align:center; font-weight:bold;"></p>
+        <span class="level-tag">${label}</span>
+        <h2 style="margin:20px 0; font-size:1.4rem;">${promptTxt}</h2>
+        <input type="text" id="grammar-input" placeholder="${placeholder}" autocomplete="off" autofocus
+               style="width:100%; padding:15px; border-radius:10px; border:2px solid #e2e8f0; text-align:center;">
+        <button id="btn-check-write" class="primary" style="width:100%; margin-top:15px;">Comprovar (Intro)</button>
+    </div>`;
+
+  const input = document.getElementById("grammar-input");
+  const feed = document.getElementById("feed-grammar");
+
+  const checkWrite = async () => {
+    if (normalizeText(input.value) === normalizeText(targetTxt)) {
+      feed.innerHTML = "✅ Molt bé!";
+      if (window.speak) window.speak(nextFase === 3 ? targetTxt : promptTxt);
+      await updateGrammarStep(
+        currentGrammarWords[currentIndex].id,
+        nextFase,
+        false,
+      );
+      setTimeout(() => {
+        currentIndex++;
+        showNextGrammarTask(container);
+      }, 1200);
+    } else {
+      feed.innerHTML = `<span style="color:#ef4444;">❌: ${targetTxt}</span>`;
+      await updateGrammarStep(
+        currentGrammarWords[currentIndex].id,
+        nextFase - 1,
+        true,
+      );
+    }
+  };
+
+  document.getElementById("btn-check-write").onclick = checkWrite;
+  input.onkeypress = (e) => {
+    if (e.key === "Enter") checkWrite();
+  };
+}
+
+async function updateGrammarStep(wordId, currentLevel, isError) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return;
+
+  const { data: current } = await supabase
+    .from("ls_progres_usuari")
+    .select("comptador_errors")
+    .eq("user_id", session.user.id)
+    .eq("unitat_id", wordId)
+    .single();
+
+  const errors = (current?.comptador_errors || 0) + (isError ? 1 : 0);
+
+  await supabase.from("ls_progres_usuari").upsert(
+    {
+      user_id: session.user.id,
+      unitat_id: wordId,
+      fase_gramatica: Math.max(0, currentLevel),
+      comptador_errors: errors,
+      ultima_revisio: new Date().toISOString(),
+    },
+    { onConflict: "user_id, unitat_id" },
+  );
 }
 
 function renderGrammarFinal(container) {
-  container.innerHTML = `
-    <div class="vocab-card" style="text-align:center; padding:40px; animation: slideUp 0.5s ease;">
-        <div style="font-size: 4rem; margin-bottom: 20px;">🏆</div>
-        <h2 style="color: #1e293b;">Mestre de la Gramàtica!</h2>
-        <p style="color: #64748b; margin-top: 10px;">Has completat tots els exercicis d'aquest bloc amb èxit.</p>
-        <button onclick="location.reload()" class="primary" style="margin-top:30px; width: 100%;">
-            Tornar al menú principal
-        </button>
-    </div>`;
+  container.innerHTML = `<div class="vocab-card" style="text-align:center;"><h2>🏆 Bloc completat!</h2><button onclick="location.reload()" class="primary">Tornar</button></div>`;
 }

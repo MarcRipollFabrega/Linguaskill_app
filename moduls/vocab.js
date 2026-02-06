@@ -5,6 +5,17 @@ let firstSelection = null;
 let solvedCount = 0;
 let wordsWithErrors = new Set();
 
+// Funció millorada per ignorar accents, espais i caràcters especials
+function normalizeText(text) {
+  if (!text) return "";
+  return text
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Elimina accents
+    .replace(/[^a-z0-9]/g, "");    // Elimina tot el que no sigui lletra o número (espais, punts, apòstrofs)
+}
+
 export async function initVocabModule(supabaseClient, container, level = "A1") {
   supabase = supabaseClient;
 
@@ -185,7 +196,7 @@ function renderLevel1(container) {
 // --- NIVELLS 2 A 5 ---
 
 async function renderWritingLevel(container, level) {
-  const word = currentWords[currentIndex];
+  const word = currentWords[currentIndex]; //
   let promptText = "",
     targetWord = "",
     showText = "";
@@ -215,84 +226,79 @@ async function renderWritingLevel(container, level) {
   container.innerHTML = `
     <div class="vocab-card" style="padding: 25px; text-align: center;">
         <div class="word-header"><span class="level-tag">NIVELL ${level}</span></div>
-        <p style="margin-top:20px; color: var(--text-muted);">${promptText}</p>
-        <h2 style="font-size: 2.5rem; margin: 20px 0;">${showText}</h2>
+        
+        <p id="feed" style="margin: 10px 0; font-weight:bold; min-height: 1.5em; font-size: 1.1rem;"></p>
+        
+        <p style="margin-top:10px; color: var(--text-muted);">${promptText}</p>
+        <h2 style="font-size: 2.5rem; margin: 15px 0;">${showText}</h2>
+        
         <input type="text" id="ans-input" autocomplete="off" placeholder="Escriu aquí..." 
                style="text-align: center; font-size: 1.2rem; padding: 12px; width: 85%; border-radius: 10px; border: 2px solid #e2e8f0; margin-bottom: 15px;">
+        
         <button id="btn-check" class="primary" style="width: 85%;">Comprovar</button>
         <div style="margin-top: 15px;"><button id="btn-replay" class="btn-hint">🔊 Escoltar de nou</button></div>
-        <p id="feed" style="margin-top:15px; font-weight:bold; min-height: 1.5em;"></p>
     </div>`;
 
   const input = document.getElementById("ans-input");
-  const feedbackElem = document.getElementById("feed");
-  
-  // Focus automàtic per a millor UX
+  const feedbackElem = document.getElementById("feed"); //
+
   setTimeout(() => input.focus(), 100);
 
   document.getElementById("btn-replay").onclick = () => {
-    window.speak(word.paraula_en);
+    window.speak(word.paraula_en); //
     input.focus();
   };
 
   const check = async () => {
-    const normalize = (s) =>
-      s.normalize("NFD")
-       .replace(/[\u0300-\u036f]/g, "")
-       .toLowerCase()
-       .trim();
-
-    const userInput = normalize(input.value);
-    const correctTarget = normalize(targetWord);
+    // Utilitzem la funció de normalització global que hem creat abans
+    const userInput = normalizeText(input.value); //
+    const correctTarget = normalizeText(targetWord); //
 
     if (userInput === correctTarget) {
       // --- CAS CORRECTE ---
-      feedbackElem.innerHTML = "<span style='color: #22c55e'>✅ Correcte!</span>";
-      
+      feedbackElem.innerHTML =
+        "<span style='color: #22c55e'>✅ Correcte!</span>"; //
+
       setTimeout(() => {
-        currentIndex++;
+        currentIndex++; //
         if (currentIndex < currentWords.length) {
-          renderWritingLevel(container, level);
+          renderWritingLevel(container, level); //
         } else {
-          // Final de bloc: Actualitzem progrés només de les encertades
-          updateUserProgress(level);
-          renderTransition(container, level + 1);
+          updateUserProgress(level); //
+          renderTransition(container, level + 1); //
         }
       }, 1000);
-
     } else {
       // --- CAS ERROR ---
-      input.classList.add("shake");
+      input.classList.add("shake"); //
+      // El missatge ara apareixerà a la part superior, per sobre del títol
       feedbackElem.innerHTML = `
-        <span style="color: #ef4444;">❌ Incorrecte. La resposta era: <strong>${targetWord}</strong></span>
+        <span style="color: #ef4444;">❌ Resposta: <strong>${targetWord}</strong></span>
       `;
 
-      // 1. Marquem la paraula com a fallada en aquesta sessió
-      if (typeof wordsWithErrors !== 'undefined') {
-        wordsWithErrors.add(word.id);
+      if (typeof wordsWithErrors !== "undefined") {
+        wordsWithErrors.add(word.id); //
       }
 
-      // 2. Registrem l'error a la base de dades immediatament
-      await registrarErrorEnBD(word.id);
+      await registrarErrorEnBD(word.id); //
 
       setTimeout(() => {
-        input.classList.remove("shake");
-        currentIndex++; 
-        
+        input.classList.remove("shake"); //
+        currentIndex++;
+
         if (currentIndex < currentWords.length) {
-          renderWritingLevel(container, level);
+          renderWritingLevel(container, level); //
         } else {
-          updateUserProgress(level);
-          renderTransition(container, level + 1);
+          updateUserProgress(level); //
+          renderTransition(container, level + 1); //
         }
-      }, 2500); // Temps extra perquè l'usuari llegeixi la correcció
+      }, 2500);
     }
   };
 
-  // Events de control
-  document.getElementById("btn-check").onclick = check;
+  document.getElementById("btn-check").onclick = check; //
   input.onkeypress = (e) => {
-    if (e.key === "Enter") check();
+    if (e.key === "Enter") check(); //
   };
 }
 

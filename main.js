@@ -185,3 +185,20 @@ supabaseClient.auth.getSession().then(({ data }) => {
     loadProgressChart(supabaseClient);
   }
 });
+// Funcionalitat per al nou botó de "Cancel·lar" al formulari de login
+document.getElementById("btn-cancel-login").onclick = () => {
+    document.getElementById("email").value = "";
+    document.getElementById("password").value = "";
+    document.getElementById("message").innerText = "Sessió no iniciada.";
+};
+
+// Funcionalitat per al botó de "Tancar sessió" (Logout)
+document.getElementById("btn-logout").onclick = async () => {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+        alert("Error en tancar sessió: " + error.message);
+    } else {
+        // Reiniciem la pàgina per netejar l'estat de l'aplicació
+        location.reload();
+    }
+};

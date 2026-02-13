@@ -3,44 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Linguaskill Academy</title>
+    <title>Linguaskill Academy - Destination B2</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div id="app">
-        <h1>Linguaskill Academy</h1>
-        
-   <div id="login-form" class="form-group">
-    <input type="email" id="email" placeholder="Correu electrònic">
-    <input type="password" id="password" placeholder="Contrasenya">
-    <button id="btn-login">Entrar</button>
-    <button id="btn-cancel-login" class="secondary" style="margin-top: 10px;">Cancel·lar</button>
-</div>
-        <p id="message"></p>
+<div id="app">
+    <h1>Linguaskill Academy</h1>
+    
+    <div id="login-form" class="form-group">
+        <input type="email" id="email" placeholder="Correu electrònic">
+        <input type="password" id="password" placeholder="Contrasenya">
+        <button id="btn-login">Entrar</button>
+    </div>
 
-        <div id="user-profile" style="display: none;">
-            <p>Benvingut, <span id="user-email"></span></p>
-            
-            <div style="height: 200px; margin-bottom: 20px; background: #f8fafc; border-radius: 10px; padding: 10px;">
+    <p id="message"></p>
+
+    <div id="user-profile" style="display: none; max-width: 500px; margin: auto;">
+        <div style="text-align: center; margin-bottom: 25px;">
+            <h1 style="font-size: 1.5rem; color: #1e293b; margin-bottom: 5px;">Linguaskill Academy</h1>
+            <p style="color: #64748b; font-size: 0.9rem;">
+                Estudiant: <span id="user-email" style="font-weight: bold; color: #2563eb;"></span>
+            </p>
+        </div>
+
+        <div style="background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);">
+            <div style="position: relative; height: 200px; width: 100%; margin: 0 auto;">
                 <canvas id="progressChart"></canvas>
             </div>
 
-            <div class="menu-grid">
-                <button class="menu-card" id="btn-vocab">📚 Vocabulari</button>
-                <button class="menu-card" id="btn-grammar">✍️ Gramàtica</button>
+            <div style="text-align: center; margin-bottom: 25px; padding: 15px; background: #f8fafc; border-radius: 12px;">
+                <span style="font-size: 0.75rem; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Unitat en curs</span>
+                <div id="next-unit-display" style="font-size: 1.2rem; font-weight: bold; color: #0f172a; margin-top: 5px;">-</div>
             </div>
 
-            <button id="btn-logout" class="secondary" style="margin-top: 20px;">Tancar sessió</button>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <button id="btn-start-flow" style="padding: 18px; background: #2563eb; color: white; border: none; border-radius: 15px; font-weight: bold; font-size: 1.1rem; cursor: pointer; transition: 0.2s;">
+                    Començar a Practicar 🚀
+                </button>
+                <button id="btn-logout" style="padding: 12px; background: #f1f5f9; color: #64748b; border: none; border-radius: 15px; font-weight: 600; cursor: pointer;">
+                    Sortir de la sessió
+                </button>
+            </div>
         </div>
-
-        <div id="exercise-container" style="display: none; margin-top: 20px;"></div>
-        
-        <button id="btn-back" style="display: none; margin-top: 20px; background: #64748b; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer;">
-            ⬅️ Tornar al Menú
-        </button>
     </div>
+
+<div id="practice-wrapper" style="display: none; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); max-width: 500px; margin: 20px auto;">
+    <div id="exercise-container" style="display: block !important; min-height: 50px;"></div>
+    
+    <button id="btn-back" style="display: none; margin-top: 20px; background: #f1f5f9; color: #64748b; border: none; padding: 12px; border-radius: 12px; cursor: pointer; font-weight: bold; width: 100%;">
+        ← Tornar al menú
+    </button>
+</div>
+</div>
+
 
     <script type="module" src="main.js"></script>
 </body>

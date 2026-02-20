@@ -7,12 +7,12 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 </head>
 <body>
 <div id="app">
-    <h1>Linguaskill Academy</h1>
-    
     <div id="login-form" class="form-group">
+        <h1>Linguaskill Academy</h1>
         <input type="email" id="email" placeholder="Correu electrònic">
         <input type="password" id="password" placeholder="Contrasenya">
         <button id="btn-login">Entrar</button>
@@ -22,20 +22,33 @@
 
     <div id="user-profile" style="display: none; max-width: 500px; margin: auto;">
         <div style="text-align: center; margin-bottom: 25px;">
-            <h1 style="font-size: 1.5rem; color: #1e293b; margin-bottom: 5px;">Linguaskill Academy</h1>
-            <p style="color: #64748b; font-size: 0.9rem;">
-                Estudiant: <span id="user-email" style="font-weight: bold; color: #2563eb;"></span>
-            </p>
-        </div>
+            <h1 style="font-size: 1.5rem; color: #1e293b; margin-bottom: 5px;">Benvingut!</h1>
+            <p id="user-email" style="color: #64748b; font-size: 0.9rem; margin-bottom: 20px;"></p>
 
-        <div style="background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);">
-            <div style="position: relative; height: 200px; width: 100%; margin: 0 auto;">
-                <canvas id="progressChart"></canvas>
+            <div id="stats-container" style="margin: 20px 0; background: #f8fafc; padding: 25px; border-radius: 20px; border: 1px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+                <div style="position: relative; height: 200px; width: 200px; margin: 0 auto;">
+                    <canvas id="progressChart"></canvas>
+                    <div id="chart-percentage" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;">
+                        <span id="percent-text" style="font-size: 2rem; font-weight: 800; color: #1e293b; display: block;">0%</span>
+                        <p style="font-size: 0.65rem; color: #64748b; margin: 0; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">Completat</p>
+                    </div>
+                </div>
+                
+                <div id="stats-labels" style="display: flex; justify-content: space-around; margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+                    <div style="text-align: center;">
+                        <span id="stat-done" style="display: block; font-weight: 800; color: #2563eb; font-size: 1.2rem;">0</span>
+                        <small style="color: #64748b; font-weight: 600; font-size: 0.75rem;">fetes</small>
+                    </div>
+                    <div style="text-align: center;">
+                        <span id="stat-pending" style="display: block; font-weight: 800; color: #94a3b8; font-size: 1.2rem;">0</span>
+                        <small style="color: #64748b; font-weight: 600; font-size: 0.75rem;">Pendents</small>
+                    </div>
+                </div>
             </div>
 
-            <div style="text-align: center; margin-bottom: 25px; padding: 15px; background: #f8fafc; border-radius: 12px;">
+            <div style="background: #ffffff; padding: 15px; border-radius: 15px; border: 1px solid #e2e8f0; margin-bottom: 20px; text-align: left;">
                 <span style="font-size: 0.75rem; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Unitat en curs</span>
-                <div id="next-unit-display" style="font-size: 1.2rem; font-weight: bold; color: #0f172a; margin-top: 5px;">-</div>
+                <div id="next-unit-display" style="font-size: 1.1rem; font-weight: bold; color: #0f172a; margin-top: 5px;">Carregant...</div>
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 12px;">
@@ -50,15 +63,26 @@
     </div>
 
 <div id="practice-wrapper" style="display: none; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); max-width: 500px; margin: 20px auto;">
-    <div id="exercise-container" style="display: block !important; min-height: 50px;"></div>
-    
-    <button id="btn-back" style="display: none; margin-top: 20px; background: #f1f5f9; color: #64748b; border: none; padding: 12px; border-radius: 12px; cursor: pointer; font-weight: bold; width: 100%;">
-        ← Tornar al menú
+    <button id="btn-back" style="background: #64748b; color: white; border: none; padding: 10px 18px; border-radius: 10px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+        ⬅ Tornar al Menú
     </button>
+    <button id="btn-show-answers" style="background: #f59e0b; color: white; border: none; padding: 10px 18px; border-radius: 10px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-bottom: 20px;">
+    💡 Ver Respuestas
+</button>
+
+<div id="side-panel-answers" style="display: none; position: fixed; top: 0; right: 0; width: 350px; height: 100%; background: white; box-shadow: -5px 0 15px rgba(0,0,0,0.1); z-index: 1000; padding: 20px; overflow-y: auto;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3 style="margin: 0;">Respuestas de la Unidad</h3>
+        <button id="btn-close-panel" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+    </div>
+    <div id="answers-table-container">
+        </div>
+</div>
+    
+    <div id="module-container"></div>
 </div>
 </div>
 
-
-    <script type="module" src="main.js"></script>
+<script type="module" src="main.js"></script>
 </body>
 </html>

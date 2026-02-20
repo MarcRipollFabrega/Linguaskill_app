@@ -1,13 +1,15 @@
 import { SUPABASE_URL, SUPABASE_KEY } from "./moduls/config.js";
 import { initVocabModule } from "./moduls/vocab.js";
 import { initGrammarModule } from "./moduls/grammar.js";
-import { initReviewModule } from "./moduls/review.js"; // Afegit el mòdul de review
+import { initReviewModule } from "./moduls/review.js";
+import { loadVoices } from "./moduls/audio.js";
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let nextUnitData = null;
 let myChart = null;
 
-// Inicialització de sessió
+loadVoices();
+
 supabaseClient.auth.getSession().then(({ data }) => {
   if (data.session) showApp(data.session.user);
   else showLogin();
@@ -31,70 +33,76 @@ async function updateDashboard() {
   } = await supabaseClient.auth.getSession();
   if (!session) return;
 
-  // Agafem les unitats ordenades per l'ordre que has definit (1, 2, 3...)
+  // 1. Obtener todas las unidades y el progreso global
   const { data: units } = await supabaseClient
     .from("b2_unitats")
     .select("*")
     .order("ordre", { ascending: true });
-
-  const { data: progress } = await supabaseClient
+  const { data: userProgress } = await supabaseClient
     .from("b2_progres_usuari")
     .select("*")
     .eq("user_id", session.user.id);
 
-  const completedIds = progress ? progress.map((p) => p.unitat_id) : [];
+  const completedUnitIds = userProgress
+    ? userProgress.filter((p) => p.completada).map((p) => p.unitat_id)
+    : [];
 
-  // El sistema busca la següent unitat no completada seguint l'ordre estrictament
-  nextUnitData = units.find((u) => !completedIds.includes(u.id));
-
-  if (nextUnitData) {
-    document.getElementById("next-unit-display").innerText =
-      `Unitat ${nextUnitData.ordre}: ${nextUnitData.nom || nextUnitData.titol}`;
-  } else {
-    document.getElementById("next-unit-display").innerText =
-      "Curs completat! 🎉";
-    document.getElementById("btn-start-flow").style.display = "none";
+  // 2. Determinar la unidad actual para el display
+  if (units && units.length > 0) {
+    nextUnitData =
+      units.find((u) => !completedUnitIds.includes(u.id)) || units[0];
+    document.getElementById("next-unit-display").innerText = nextUnitData.titol;
   }
 
-  renderProgressChart(units.length, completedIds.length);
+  // --- REPARACIÓN DEL GRÁFICO ---
+
+  // A. Total de frases reales en la base de datos
+  const { count: totalFrases } = await supabaseClient
+    .from("b2_contingut")
+    .select("*", { count: "exact", head: true });
+
+  // B. Obtener todas las frases que pertenecen a las unidades completadas
+  const { data: frasesUnidadesHechas } = await supabaseClient
+    .from("b2_contingut")
+    .select("id")
+    .in("unitat_id", completedUnitIds);
+
+  // C. Obtener IDs de frases sueltas (registros con contingut_id)
+  const frasesSueltasIds = userProgress
+    ? userProgress.filter((p) => p.contingut_id).map((p) => p.contingut_id)
+    : [];
+
+  // Combinamos ambos para evitar duplicados y tener el número real
+  const totalHecho = new Set([
+    ...(frasesUnidadesHechas ? frasesUnidadesHechas.map((f) => f.id) : []),
+    ...frasesSueltasIds,
+  ]).size;
+
+  renderProgressChart(totalFrases || 0, totalHecho);
 }
 
-// FUNCIO PER OBRIR EL MODUL (Flux: Vocab -> Grammar -> Review)
 function openModule() {
   if (!nextUnitData) return;
 
-  const profile = document.getElementById("user-profile");
-  const wrapper = document.getElementById("practice-wrapper");
-  const container = document.getElementById("exercise-container");
-  const btnBack = document.getElementById("btn-back");
+  const container = document.getElementById("module-container");
 
-  profile.style.display = "none";
-  wrapper.style.display = "block";
-  btnBack.style.display = "block";
+  // Verificación de seguridad: si el contenedor no existe, lanzamos un error claro
+  if (!container) {
+    console.error(
+      "Error: No se ha encontrado el elemento 'module-container' en el HTML.",
+    );
+    return;
+  }
 
-  container.innerHTML =
-    '<p style="text-align:center;">Preparant contingut...</p>';
+  document.getElementById("user-profile").style.display = "none";
+  document.getElementById("practice-wrapper").style.display = "block";
 
-  console.log(
-    "Iniciant unitat:",
-    nextUnitData.id,
-    "Tipus:",
-    nextUnitData.tipus,
-  );
-
-  // Seleccionem el mòdul automàticament segons el camp 'tipus' de la taula b2_unitats
-  switch (nextUnitData.tipus) {
-    case "Vocabulary":
-      initVocabModule(supabaseClient, container, nextUnitData.id);
-      break;
-    case "Grammar":
-      initGrammarModule(supabaseClient, container, nextUnitData.id);
-      break;
-    case "Review":
-      initReviewModule(supabaseClient, container, nextUnitData.id);
-      break;
-    default:
-      container.innerHTML = `<p style="text-align:center;">Tipus d'unitat desconegut: ${nextUnitData.tipus}</p>`;
+  if (nextUnitData.tipus === "Vocabulary") {
+    initVocabModule(supabaseClient, container, nextUnitData.id);
+  } else if (nextUnitData.tipus === "Grammar") {
+    initGrammarModule(supabaseClient, container, nextUnitData.id);
+  } else {
+    initReviewModule(supabaseClient, container, nextUnitData.id);
   }
 }
 
@@ -104,38 +112,95 @@ function goBackToDashboard() {
   updateDashboard();
 }
 
-// Esdeveniments
 document.getElementById("btn-start-flow").onclick = openModule;
 document.getElementById("btn-back").onclick = goBackToDashboard;
 
-// Gràfic (sense canvis)
 function renderProgressChart(total, completed) {
   const canvas = document.getElementById("progressChart");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
+
+  const percentage = Math.round((completed / total) * 100) || 0;
+  document.getElementById("percent-text").innerText = percentage + "%";
+ 
+  document.getElementById("stat-done").innerText = completed; // Ahora son frases
+  document.getElementById("stat-pending").innerText = total - completed;
+
   if (myChart) myChart.destroy();
+
   myChart = new Chart(ctx, {
     type: "doughnut",
     data: {
-      labels: ["Fet", "Pendent"],
+      labels: ["Completado", "Pendiente"],
       datasets: [
         {
           data: [completed, total - completed],
-          backgroundColor: ["#2563eb", "#f1f5f9"],
+          backgroundColor: ["#2563eb", "#e2e8f0"],
+          borderWidth: 0,
+          borderRadius: 10,
         },
       ],
     },
     options: {
-      cutout: "80%",
+      cutout: "85%",
       plugins: { legend: { display: false } },
-      maintainAspectRatio: false,
     },
   });
 }
 
-document.getElementById("btn-logout").onclick = async () => {
-  await supabaseClient.auth.signOut();
-  location.reload();
+async function toggleAnswersPanel() {
+    const panel = document.getElementById("side-panel-answers");
+    const container = document.getElementById("answers-table-container");
+
+    if (panel.style.display === "block") {
+        panel.style.display = "none";
+        return;
+    }
+
+    if (!nextUnitData) return;
+
+    panel.style.display = "block";
+    container.innerHTML = "<p>Cargando respuestas...</p>";
+
+    // Consultamos todo el contenido de la unidad actual
+    const { data, error } = await supabaseClient
+        .from("b2_contingut")
+        .select("paraula_en, paraula_es, categoria")
+        .eq("unitat_id", nextUnitData.id)
+        .order("categoria", { ascending: true });
+
+    if (error) {
+        container.innerHTML = "<p>Error al cargar datos.</p>";
+        return;
+    }
+
+    // Creamos la tabla
+    let html = `
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+            <thead>
+                <tr style="background: #f1f5f9; text-align: left;">
+                    <th style="padding: 8px; border-bottom: 2px solid #e2e8f0;">ES</th>
+                    <th style="padding: 8px; border-bottom: 2px solid #e2e8f0;">EN</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    data.forEach(item => {
+        html += `
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">${item.paraula_es}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold; color: #2563eb;">${item.paraula_en}</td>
+            </tr>
+        `;
+    });
+
+    html += "</tbody></table>";
+    container.innerHTML = html;
+}
+
+// Eventos de los botones
+document.getElementById("btn-show-answers").onclick = toggleAnswersPanel;
+document.getElementById("btn-close-panel").onclick = () => {
+    document.getElementById("side-panel-answers").style.display = "none";
 };
-window.speechSynthesis.onvoiceschanged = loadVoices;
-loadVoices();

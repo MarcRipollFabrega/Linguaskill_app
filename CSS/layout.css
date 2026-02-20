@@ -26,3 +26,24 @@
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+#user-profile {
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Centra todo el contenido */
+    width: 100%;
+    animation: fadeIn 0.5s ease-out;
+}
+
+#stats-container {
+    width: 100%;
+    max-width: 350px; /* Evita que el gráfico se haga gigante en tablets */
+    margin: 20px auto !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+#btn-start-flow {
+    width: 100%;
+    max-width: 350px;
+    margin: 0 auto;
+    display: block;
+}
